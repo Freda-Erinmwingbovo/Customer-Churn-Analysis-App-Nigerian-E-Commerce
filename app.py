@@ -1,6 +1,6 @@
 # ============================================================
 # app.py — Churn Analysis Pro (FLAGSHIP PORTFOLIO VERSION)
-# AI-Powered Retention • Explainability • LTV • PDF • PPT
+# AI-Powered Retention • Explainability • LTV • PDF • PPT (offline)
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
 
@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
+import io
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -17,9 +18,13 @@ from xgboost import XGBClassifier
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-from python_pptx import Presentation
 
-import io
+# ---------------- PPT IMPORT ----------------
+try:
+    from python_pptx import Presentation
+    PPT_AVAILABLE = True
+except ModuleNotFoundError:
+    PPT_AVAILABLE = False
 
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="Churn Analysis Pro", page_icon="🚨", layout="wide")
@@ -137,29 +142,31 @@ if uploaded_file:
             mime="application/pdf"
         )
 
-    # ---------------- PPT EXPORT ----------------
-    if st.button("📊 Export Investor PowerPoint"):
-        prs = Presentation()
-        slide = prs.slides.add_slide(prs.slide_layouts[1])
-        slide.shapes.title.text = "Churn Analysis Pro"
+    # ---------------- PPT EXPORT (ONLY IF AVAILABLE) ----------------
+    if PPT_AVAILABLE:
+        if st.button("📊 Export Investor PowerPoint"):
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = "Churn Analysis Pro"
+            slide.shapes.placeholders[1].text = (
+                f"Customers: {len(df):,}\n"
+                f"Churn Rate: {df['predicted_churn'].mean():.1%}\n"
+                f"Accuracy: {acc:.2%}\n"
+                f"ROC-AUC: {auc:.2f}"
+            )
 
-        body = slide.shapes.placeholders[1].text = (
-            f"Customers: {len(df):,}\n"
-            f"Churn Rate: {df['predicted_churn'].mean():.1%}\n"
-            f"Accuracy: {acc:.2%}\n"
-            f"ROC-AUC: {auc:.2f}"
-        )
+            ppt_buffer = io.BytesIO()
+            prs.save(ppt_buffer)
+            ppt_buffer.seek(0)
 
-        ppt_buffer = io.BytesIO()
-        prs.save(ppt_buffer)
-        ppt_buffer.seek(0)
-
-        st.download_button(
-            "Download PPT",
-            ppt_buffer,
-            file_name="churn_investor_deck.pptx",
-            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        )
+            st.download_button(
+                "Download PPT",
+                ppt_buffer,
+                file_name="churn_investor_deck.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            )
+    else:
+        st.info("📊 PPT export unavailable in this deployment. Run locally for PPT export.")
 
     # ---------------- CSV ----------------
     st.download_button(
