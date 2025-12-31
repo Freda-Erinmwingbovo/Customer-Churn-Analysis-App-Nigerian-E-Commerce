@@ -1,5 +1,5 @@
 # ============================================================
-# app.py — Churn Analysis Pro (FINAL - NO ERRORS + PERSONALIZED RECOMMENDATIONS)
+# app.py — Churn Analysis Pro (FULLY WORKING - NO INDENTATION ERRORS)
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
 
@@ -161,6 +161,7 @@ if uploaded_file is not None:
             "🔴 High-Risk Customers", "🧠 Model Explainability", "💰 What-If Simulator", "📄 Export Reports", "📊 Full Data"
         ])
 
+        # TAB 1
         with tab1:
             st.subheader("High-Risk Customers with Personalized Retention Plans")
             risk_threshold = st.slider("Risk threshold", 0.3, 0.9, 0.6, 0.05, key="risk_thresh")
@@ -182,6 +183,7 @@ if uploaded_file is not None:
                         st.write(f"**Monthly Spend:** ₦{cust['monthly_spend_ngn']:,.0f} | **Tenure:** {cust['tenure_months']} months")
                         st.markdown(f"<div class='recommendation'>{cust['recommendation']}</div>", unsafe_allow_html=True)
 
+        # TAB 2
         with tab2:
             st.subheader("Global Feature Importance (SHAP)")
             if st.button("Generate SHAP Beeswarm Plot", key="shap_button"):
@@ -198,6 +200,7 @@ if uploaded_file is not None:
                     except Exception as e:
                         st.error(f"SHAP error: {e}. Try clicking again.")
 
+        # TAB 3
         with tab3:
             st.subheader("Retention Campaign Simulator")
             if high_risk.empty:
@@ -222,6 +225,7 @@ if uploaded_file is not None:
                 st.metric("Expected Retained", f"{expected_retained:.0f}")
                 st.write(f"**Gross Revenue Saved:** ₦{revenue_saved:,.0f} | **Campaign Cost:** ₦{cost:,.0f}")
 
+        # TAB 4
         with tab4:
             col1, col2 = st.columns(2)
             with col1:
@@ -296,6 +300,7 @@ if uploaded_file is not None:
                 else:
                     st.info("PPT export available only when running locally")
 
+        # TAB 5
         with tab5:
             st.subheader("Download Enriched Dataset")
             st.download_button("⬇️ Download CSV (with predictions, LTV & recommendations)",
