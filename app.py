@@ -1,137 +1,175 @@
 # ============================================================
-# app.py — Churn Analysis Pro (Enhanced with LLM, LTV, Better Model)
-# Real Data Upload • Personalized Retention • LTV Forecast
+# app.py — Churn Analysis Pro (FLAGSHIP PORTFOLIO VERSION)
+# AI-Powered Retention • Explainability • LTV • PDF • PPT
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
+import shap
+import matplotlib.pyplot as plt
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
-import matplotlib.pyplot as plt
-import seaborn as sns
-import requests
-import json
 
-st.set_page_config(page_title="Churn Pro", page_icon="🚨", layout="wide")
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from python_pptx import Presentation
+
+import io
+
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Churn Analysis Pro", page_icon="🚨", layout="wide")
 
 st.markdown("""
 <style>
-    .big-font {font-size: 50px !important; font-weight: bold;}
-    .risk {color: #d32f2f;}
-    .save {color: #388e3c;}
-    .metric-card {background-color: #f8f9fa; padding: 20px; border-radius: 15px; box-shadow: 0 6px 12px rgba(0,0,0,0.1);}
-    h1 {color: #1e88e5;}
+.big-font {font-size: 46px; font-weight: bold;}
+.metric-card {background:#f8f9fa; padding:20px; border-radius:14px;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='text-align: center;'>🚨 Churn Analysis Pro</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; font-size: 22px;'>AI-Powered Retention + Personalized Plans + LTV Forecast</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>🚨 Churn Analysis Pro</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:22px;'>AI-Powered Retention + Explainability + LTV</p>", unsafe_allow_html=True)
 
+# ---------------- UPLOAD ----------------
 uploaded_file = st.file_uploader("📁 Upload your customer CSV", type="csv")
 
-if uploaded_file is not None:
-    try:
-        df = pd.read_csv(uploaded_file)
-        st.success(f"✅ Loaded {len(df):,} customers")
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.success(f"✅ Loaded {len(df):,} customers")
 
-        required = ['tenure_months', 'monthly_spend_ngn', 'num_purchases', 'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate', 'churn']
-        missing = [col for col in required if col not in df.columns]
-        if missing:
-            st.error(f"Missing columns: {missing}")
-            st.stop()
+    required = [
+        'tenure_months','monthly_spend_ngn','num_purchases','complaints',
+        'support_tickets','app_usage_days_per_month','email_open_rate','churn'
+    ]
+    if not all(c in df.columns for c in required):
+        st.error("Missing required columns.")
+        st.stop()
 
-        if 'customer_id' not in df.columns:
-            df['customer_id'] = range(1, len(df) + 1)
-        if 'name' not in df.columns:
-            df['name'] = "Customer " + df['customer_id'].astype(str)
+    # ---------------- FEATURES ----------------
+    df['total_spend'] = df['monthly_spend_ngn'] * df['tenure_months']
+    df['spend_per_purchase'] = df['total_spend'] / (df['num_purchases'] + 1)
+    df['complaint_rate'] = df['complaints'] / (df['tenure_months'] + 1)
+    df['ticket_rate'] = df['support_tickets'] / (df['tenure_months'] + 1)
+    df['engagement'] = df['app_usage_days_per_month'] * df['email_open_rate']
 
-        # Enhanced feature engineering
-        df['total_spend_ngn'] = df['monthly_spend_ngn'] * df['tenure_months']
-        df['avg_spend_per_month'] = df['total_spend_ngn'] / df['tenure_months']
-        df['spend_per_purchase'] = df['total_spend_ngn'] / (df['num_purchases'] + 1)
-        df['complaint_rate'] = df['complaints'] / (df['tenure_months'] + 1)
-        df['ticket_rate'] = df['support_tickets'] / (df['tenure_months'] + 1)
-        df['engagement_score'] = df['app_usage_days_per_month'] * df['email_open_rate']
+    features = [
+        'tenure_months','monthly_spend_ngn','num_purchases',
+        'complaints','support_tickets','app_usage_days_per_month',
+        'email_open_rate','spend_per_purchase','complaint_rate',
+        'ticket_rate','engagement'
+    ]
 
-        features = [
-            'tenure_months', 'monthly_spend_ngn', 'avg_spend_per_month', 'num_purchases',
-            'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate',
-            'spend_per_purchase', 'complaint_rate', 'ticket_rate', 'engagement_score'
+    X = df[features]
+    y = df['churn']
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=42
+    )
+
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s = scaler.transform(X_test)
+
+    # ---------------- MODEL ----------------
+    model = XGBClassifier(
+        n_estimators=500,
+        max_depth=8,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        eval_metric="logloss",
+        random_state=42
+    )
+    model.fit(X_train_s, y_train)
+
+    # ---------------- METRICS ----------------
+    preds = model.predict(X_test_s)
+    probs = model.predict_proba(X_test_s)[:,1]
+
+    acc = accuracy_score(y_test, preds)
+    auc = roc_auc_score(y_test, probs)
+
+    df['churn_probability'] = model.predict_proba(scaler.transform(X))[:,1]
+    df['predicted_churn'] = (df['churn_probability'] > 0.5).astype(int)
+
+    # ---------------- DASHBOARD ----------------
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Customers", f"{len(df):,}")
+    c2.metric("Predicted Churn", f"{df['predicted_churn'].mean():.1%}")
+    c3.metric("Accuracy", f"{acc:.2%}")
+    c4.metric("ROC-AUC", f"{auc:.2f}")
+
+    # ---------------- SHAP ----------------
+    st.subheader("🧠 Model Explainability (SHAP)")
+    if st.button("Generate SHAP Explanation"):
+        explainer = shap.Explainer(model, X_train_s)
+        shap_values = explainer(X_test_s[:500])
+
+        fig, ax = plt.subplots()
+        shap.plots.beeswarm(shap_values, show=False)
+        st.pyplot(fig)
+
+    # ---------------- PDF EXPORT ----------------
+    if st.button("📄 Export Executive PDF"):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
+
+        content = [
+            Paragraph("<b>Churn Analysis Pro – Executive Summary</b>", styles['Title']),
+            Paragraph(f"Customers analysed: {len(df):,}", styles['Normal']),
+            Paragraph(f"Churn rate: {df['predicted_churn'].mean():.1%}", styles['Normal']),
+            Paragraph(f"Model Accuracy: {acc:.2%}", styles['Normal']),
+            Paragraph(f"ROC-AUC: {auc:.2f}", styles['Normal']),
         ]
 
-        X = df[features]
-        y = df['churn']
+        doc.build(content)
+        buffer.seek(0)
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        st.download_button(
+            "Download PDF",
+            buffer,
+            file_name="churn_executive_summary.pdf",
+            mime="application/pdf"
+        )
 
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
+    # ---------------- PPT EXPORT ----------------
+    if st.button("📊 Export Investor PowerPoint"):
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = "Churn Analysis Pro"
 
-        with st.spinner("Training enhanced model..."):
-            model = XGBClassifier(
-                n_estimators=500,
-                max_depth=8,
-                learning_rate=0.05,
-                subsample=0.8,
-                colsample_bytree=0.8,
-                random_state=42
-            )
-            model.fit(X_train_scaled, y_train)
+        body = slide.shapes.placeholders[1].text = (
+            f"Customers: {len(df):,}\n"
+            f"Churn Rate: {df['predicted_churn'].mean():.1%}\n"
+            f"Accuracy: {acc:.2%}\n"
+            f"ROC-AUC: {auc:.2f}"
+        )
 
-        df['churn_probability'] = model.predict_proba(scaler.transform(X))[:, 1]
-        df['predicted_churn'] = model.predict(scaler.transform(X))
+        ppt_buffer = io.BytesIO()
+        prs.save(ppt_buffer)
+        ppt_buffer.seek(0)
 
-        st.success("Model trained with enhanced features!")
+        st.download_button(
+            "Download PPT",
+            ppt_buffer,
+            file_name="churn_investor_deck.pptx",
+            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
 
-        # LTV Forecast
-        df['ltv_estimate'] = df['monthly_spend_ngn'] * 12 * (1 / (df['churn_probability'] + 0.01))  # Simple LTV
-        total_ltv_at_risk = df[df['predicted_churn'] == 1]['ltv_estimate'].sum()
+    # ---------------- CSV ----------------
+    st.download_button(
+        "⬇️ Download Full CSV Analysis",
+        df.to_csv(index=False),
+        "churn_analysis_full.csv",
+        "text/csv"
+    )
 
-        # Metrics
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Customers", f"{len(df):,}")
-        col2.metric("Churn Rate", f"{df['predicted_churn'].mean():.1%}", delta_color="inverse")
-        col3.metric("Annual Revenue at Risk", f"₦{df[df['predicted_churn'] == 1]['monthly_spend_ngn'].sum() * 12:,.0f}", delta_color="inverse")
-        col4.metric("LTV at Risk", f"₦{total_ltv_at_risk:,.0f}", delta_color="inverse")
-
-        # High-risk
-        high_risk = df[df['churn_probability'] > 0.7].sort_values('churn_probability', ascending=False)
-        st.subheader(f"High-Risk Customers ({len(high_risk)})")
-
-        # LLM Personalized Retention Plans (using Groq — free & fast)
-        st.subheader("🤖 AI-Personalized Retention Plans")
-        if st.button("Generate Personalized Plans for Top 10 High-Risk"):
-            with st.spinner("Generating AI recommendations..."):
-                # Mock LLM call (replace with real Groq API if you have key)
-                plans = []
-                for _, row in high_risk.head(10).iterrows():
-                    plan = f"Customer {row['customer_id']} ({row['name']}): High spend (₦{row['monthly_spend_ngn']:,.0f}/month) but low engagement. Recommend: 25% discount on next purchase + free delivery for 3 months."
-                    plans.append(plan)
-                for plan in plans:
-                    st.info(plan)
-
-        # What-If
-        st.subheader("What-If Simulator")
-        discount = st.slider("Discount %", 5, 50, 20)
-        retention_gain = st.slider("Expected retention gain %", 10, 80, 40)
-
-        saved = len(high_risk) * (retention_gain / 100)
-        saved_rev = saved * high_risk['monthly_spend_ngn'].mean() * 12
-        cost = saved * high_risk['monthly_spend_ngn'].mean() * (discount / 100) * 12
-        net = saved_rev - cost
-
-        st.markdown(f"<p class='save big-font'>Net Revenue Saved: ₦{net:,.0f}</p>", unsafe_allow_html=True)
-
-        # Download
-        csv = df.to_csv(index=False).encode()
-        st.download_button("Download Full Analysis", csv, "churn_analysis.csv", "text/csv")
-
-    except Exception as e:
-        st.error(f"Error: {e}")
 else:
-    st.info("Upload your CSV to begin")
+    st.info("Upload your customer CSV to begin")
 
 st.caption("Built by Freda Erinmwingbovo • Abuja, Nigeria")
