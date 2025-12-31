@@ -1,6 +1,6 @@
 # ============================================================
 # app.py — Churn Analysis Pro (Ultimate Version)
-# AI-Powered Retention • SHAP Explainability • Revenue Impact • Personalized Plans • PDF & PPT Export
+# AI-Powered Retention • SHAP Explainability • LTV • PDF • PPT • What-If
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
 
@@ -10,26 +10,25 @@ import numpy as np
 import shap
 import matplotlib.pyplot as plt
 import io
-from datetime import datetime
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
 
-# PDF Libraries
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
 
-# PPT (Optional)
+# Optional PPT export
 try:
     from python_pptx import Presentation
     PPT_AVAILABLE = True
-except ModuleNotFoundError:
+except ImportError:
     PPT_AVAILABLE = False
 
-# ---------------- CONFIG & UI ----------------
+# ---------------- CONFIG & STYLE ----------------
 st.set_page_config(page_title="Churn Analysis Pro", page_icon="🚨", layout="wide")
 
 st.markdown("""
@@ -37,15 +36,16 @@ st.markdown("""
     .big-font {font-size: 50px !important; font-weight: bold;}
     .risk {color: #d32f2f;}
     .save {color: #388e3c;}
-    .metric-card {background-color: #f8f9fa; padding: 20px; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);}
-    h1 {text-align: center; color: #1e88e5;}
+    .metric-card {background-color: #f8f9fa; padding: 20px; border-radius: 15px; box-shadow: 0 6px 12px rgba(0,0,0,0.1);}
+    h1 {color: #1e88e5; text-align: center;}
+    .stButton>button {width: 100%;}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<h1>🚨 Churn Analysis Pro</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; font-size: 22px;'>AI-Powered Retention Intelligence • Explainability • Actionable Insights</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 22px;'>AI-Powered Retention • Explainability • LTV • Actionable Insights</p>", unsafe_allow_html=True)
 
-# ---------------- UPLOAD ----------------
+# ---------------- FILE UPLOAD ----------------
 uploaded_file = st.file_uploader("📁 Upload your customer CSV", type="csv")
 
 if uploaded_file is not None:
@@ -60,10 +60,10 @@ if uploaded_file is not None:
         ]
         missing = [col for col in required if col not in df.columns]
         if missing:
-            st.error(f"Missing required columns: {missing}")
+            st.error(f"🚫 Missing required columns: {', '.join(missing)}")
             st.stop()
 
-        # Auto-generate customer identifiers if missing
+        # Optional identifiers
         if 'customer_id' not in df.columns:
             df['customer_id'] = range(1, len(df) + 1)
         if 'name' not in df.columns:
@@ -74,25 +74,23 @@ if uploaded_file is not None:
         df['spend_per_purchase'] = df['total_spend_ngn'] / (df['num_purchases'] + 1)
         df['complaint_rate'] = df['complaints'] / (df['tenure_months'] + 1)
         df['ticket_rate'] = df['support_tickets'] / (df['tenure_months'] + 1)
-        df['engagement'] = df['app_usage_days_per_month'] * df['email_open_rate']
+        df['engagement_score'] = df['app_usage_days_per_month'] * df['email_open_rate']
 
         features = [
-            'tenure_months', 'monthly_spend_ngn', 'num_purchases',
-            'complaints', 'support_tickets', 'app_usage_days_per_month',
-            'email_open_rate', 'spend_per_purchase', 'complaint_rate',
-            'ticket_rate', 'engagement'
+            'tenure_months', 'monthly_spend_ngn', 'num_purchases', 'complaints',
+            'support_tickets', 'app_usage_days_per_month', 'email_open_rate',
+            'spend_per_purchase', 'complaint_rate', 'ticket_rate', 'engagement_score'
         ]
 
         X = df[features]
         y = df['churn']
 
-        # Train-test split & scaling
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, stratify=y, random_state=42
-        )
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
+        X_scaled = scaler.transform(X)
 
         # ---------------- MODEL TRAINING ----------------
         with st.spinner("Training XGBoost model..."):
@@ -113,178 +111,152 @@ if uploaded_file is not None:
         acc = accuracy_score(y_test, preds)
         auc = roc_auc_score(y_test, probs)
 
-        df['churn_probability'] = model.predict_proba(scaler.transform(X))[:, 1]
+        df['churn_probability'] = model.predict_proba(X_scaled)[:, 1]
         df['predicted_churn'] = (df['churn_probability'] > 0.5).astype(int)
 
-        st.success("✅ Model trained successfully!")
+        # LTV Estimate (simple but effective)
+        retention_factor = 1 / (df['churn_probability'] + 0.01)
+        df['ltv_estimate'] = df['monthly_spend_ngn'] * 12 * retention_factor
+
+        total_revenue_at_risk = df[df['predicted_churn'] == 1]['monthly_spend_ngn'].sum() * 12
+        total_ltv_at_risk = df[df['predicted_churn'] == 1]['ltv_estimate'].sum()
 
         # ---------------- DASHBOARD METRICS ----------------
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Customers", f"{len(df):,}")
         col2.metric("Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}", delta_color="inverse")
-        col3.metric("Model Accuracy", f"{acc:.2%}")
-        col4.metric("ROC-AUC Score", f"{auc:.2f}")
+        col3.metric("Annual Revenue at Risk", f"₦{total_revenue_at_risk:,.0f}", delta_color="inverse")
+        col4.metric("LTV at Risk", f"₦{total_ltv_at_risk:,.0f}", delta_color="inverse")
 
-        # Revenue at Risk
-        annual_revenue_at_risk = df[df['predicted_churn'] == 1]['monthly_spend_ngn'].sum() * 12
-        st.metric("Annual Revenue at Risk", f"₦{annual_revenue_at_risk:,.0f}", delta_color="inverse")
+        col5, col6 = st.columns(2)
+        col5.metric("Model Accuracy", f"{acc:.1%}")
+        col6.metric("ROC-AUC Score", f"{auc:.3f}")
 
-        # ---------------- HIGH-RISK CUSTOMERS ----------------
-        high_risk_threshold = 0.7
-        high_risk = df[df['churn_probability'] > high_risk_threshold].sort_values('churn_probability', ascending=False)
+        st.markdown("---")
 
-        st.subheader(f"🔴 High-Risk Customers ({len(high_risk)} total)")
-        display_cols = ['customer_id', 'name', 'monthly_spend_ngn', 'tenure_months', 'churn_probability']
-        st.dataframe(
-            high_risk[display_cols].style.format({
-                'churn_probability': '{:.1%}',
-                'monthly_spend_ngn': '₦{:.0f}'
-            }),
-            use_container_width=True
-        )
+        # ---------------- TABS FOR ORGANIZATION ----------------
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🔴 High-Risk Customers", "🧠 Model Explainability", "💰 What-If Simulator", "📄 Export Reports", "📊 Full Data"
+        ])
 
-        # ---------------- WHAT-IF SIMULATOR ----------------
-        st.subheader("💡 What-If Retention Simulator")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            discount_pct = st.slider("Discount Offered (%)", 5, 50, 20)
-        with col_b:
-            retention_gain_pct = st.slider("Expected Retention Gain (%)", 10, 80, 40)
+        # ---------------- TAB 1: High-Risk Customers ----------------
+        with tab1:
+            st.subheader("Top Customers at Risk of Churning")
+            high_risk = df[df['churn_probability'] > 0.6].sort_values('churn_probability', ascending=False).copy()
+            high_risk_display = high_risk[['customer_id', 'name', 'churn_probability', 'monthly_spend_ngn', 'tenure_months', 'engagement_score', 'ltv_estimate']].round(2)
+            high_risk_display['churn_probability'] = (high_risk_display['churn_probability'] * 100).round(1).astype(str) + "%"
+            high_risk_display['monthly_spend_ngn'] = high_risk_display['monthly_spend_ngn'].apply(lambda x: f"₦{x:,.0f}")
+            high_risk_display['ltv_estimate'] = high_risk_display['ltv_estimate'].apply(lambda x: f"₦{x:,.0f}")
 
-        if len(high_risk) > 0:
-            avg_monthly_spend = high_risk['monthly_spend_ngn'].mean()
-            customers_saved = len(high_risk) * (retention_gain_pct / 100)
-            revenue_saved_annual = customers_saved * avg_monthly_spend * 12
-            campaign_cost_annual = customers_saved * avg_monthly_spend * (discount_pct / 100) * 12
-            net_benefit = revenue_saved_annual - campaign_cost_annual
+            st.dataframe(high_risk_display.head(50), use_container_width=True)
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Customers Potentially Saved", f"{customers_saved:.0f}")
-            c2.metric("Revenue Saved (Annual)", f"₦{revenue_saved_annual:,.0f}")
-            c3.metric("Net Benefit After Cost", f"₦{net_benefit:,.0f}", delta_color="normal" if net_benefit > 0 else "inverse")
-        else:
-            st.info("No high-risk customers detected — great retention health!")
+            if not high_risk.empty:
+                for _, cust in high_risk.head(10).iterrows():
+                    with st.expander(f"🔴 {cust['name']} (ID: {cust['customer_id']}) – {cust['churn_probability']:.1%} risk"):
+                        st.write(f"**Monthly Spend:** ₦{cust['monthly_spend_ngn']:,.0f} | **Tenure:** {cust['tenure_months']} months")
+                        st.write(f"**LTV Estimate:** ₦{cust['ltv_estimate']:,.0f}")
+                        st.write("**Suggested Action:** Offer personalized discount, loyalty bonus, or proactive support call.")
 
-        # ---------------- PERSONALIZED RECOMMENDATIONS ----------------
-        if len(high_risk) > 0:
-            st.subheader("🎯 Personalized Retention Recommendations (Top 10)")
-            for _, cust in high_risk.head(10).iterrows():
-                rec = (
-                    f"**{cust['name']} (ID: {cust['customer_id']})** — "
-                    f"Churn Risk: **{cust['churn_probability']:.1%}** — "
-                    f"Monthly Spend: ₦{cust['monthly_spend_ngn']:,.0f}\n\n"
-                    f"→ Offer **{discount_pct}% discount** on next renewal or bundle.\n"
-                    f"→ Send personalized re-engagement email campaign.\n"
-                    f"→ Assign dedicated support rep due to high value."
-                )
-                st.info(rec)
+        # ---------------- TAB 2: SHAP Explainability ----------------
+        with tab2:
+            st.subheader("Global Model Explainability (SHAP Beeswarm)")
+            if st.button("Generate SHAP Beeswarm Plot"):
+                with st.spinner("Computing SHAP values..."):
+                    explainer = shap.Explainer(model, X_train_scaled)
+                    shap_values = explainer(X_test_scaled[:500])
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    shap.plots.beeswarm(shap_values, show=False, max_display=12)
+                    st.pyplot(fig)
+                    plt.clf()
 
-        # ---------------- SHAP EXPLAINABILITY ----------------
-        st.subheader("🧠 Model Explainability (SHAP Beeswarm)")
-        if st.button("Generate Global SHAP Explanation"):
-            with st.spinner("Computing SHAP values..."):
-                explainer = shap.Explainer(model, X_train_scaled)
-                shap_values = explainer(X_test_scaled[:500])  # Sample for speed
-                fig, ax = plt.subplots(figsize=(10, 6))
-                shap.plots.beeswarm(shap_values, show=False, max_display=15)
-                st.pyplot(fig)
-                plt.clf()
+        # ---------------- TAB 3: What-If Simulator ----------------
+        with tab3:
+            st.subheader("Retention Campaign Simulator")
+            col1, col2 = st.columns(2)
+            with col1:
+                discount_pct = st.slider("Discount Offered (%)", 5, 50, 20)
+            with col2:
+                retention_gain_pct = st.slider("Expected Retention Improvement (%)", 10, 80, 40)
 
-        # ---------------- PDF EXPORT ----------------
-        st.subheader("📄 Export Executive Report")
-        if st.button("Generate & Download PDF Report"):
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=letter)
-            styles = getSampleStyleSheet()
-            elements = []
+            target_customers = len(high_risk)
+            saved_customers = target_customers * (retention_gain_pct / 100)
+            avg_monthly = high_risk['monthly_spend_ngn'].mean() if not high_risk.empty else 0
 
-            elements.append(Paragraph("Churn Analysis Pro – Executive Report", styles['Title']))
-            elements.append(Spacer(1, 12))
-            elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
-            elements.append(Spacer(1, 20))
+            revenue_saved = saved_customers * avg_monthly * 12
+            campaign_cost = saved_customers * avg_monthly * (discount_pct / 100) * 12
+            net_benefit = revenue_saved - campaign_cost
 
-            # Metrics Table
-            metrics_data = [
-                ["Metric", "Value"],
-                ["Total Customers", f"{len(df):,}"],
-                ["Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}"],
-                ["Annual Revenue at Risk", f"₦{annual_revenue_at_risk:,.0f}"],
-                ["Model Accuracy", f"{acc:.2%}"],
-                ["ROC-AUC Score", f"{auc:.2f}"]
-            ]
-            table = Table(metrics_data, colWidths=[300, 180])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-                ('GRID', (0,0), (-1,-1), 1, colors.black)
-            ]))
-            elements.append(table)
-            elements.append(Spacer(1, 20))
+            st.markdown(f"<p class='save big-font'>Projected Net Revenue Saved: ₦{net_benefit:,.0f}</p>", unsafe_allow_html=True)
+            st.write(f"**Customers Retained:** ~{saved_customers:.0f} out of {target_customers}")
+            st.write(f"**Revenue Saved:** ₦{revenue_saved:,.0f} | **Campaign Cost:** ₦{campaign_cost:,.0f}")
 
-            # High-risk preview
-            elements.append(Paragraph("Top 10 High-Risk Customers", styles['Heading2']))
-            risk_data = [["ID", "Name", "Spend ₦", "Risk"]] + [
-                [row['customer_id'], row['name'], f"₦{row['monthly_spend_ngn']:,.0f}", f"{row['churn_probability']:.1%}"]
-                for _, row in high_risk.head(10).iterrows()
-            ]
-            risk_table = Table(risk_data)
-            risk_table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.grey),
-                ('GRID', (0,0), (-1,-1), 1, colors.black)
-            ]))
-            elements.append(risk_table)
+        # ---------------- TAB 4: Export Reports ----------------
+        with tab4:
+            col1, col2 = st.columns(2)
 
-            doc.build(elements)
-            buffer.seek(0)
+            with col1:
+                if st.button("📄 Generate Executive PDF Report"):
+                    buffer = io.BytesIO()
+                    doc = SimpleDocTemplate(buffer, pagesize=A4)
+                    styles = getSampleStyleSheet()
+                    story = []
+
+                    story.append(Paragraph("Churn Analysis Pro – Executive Report", styles['Title']))
+                    story.append(Spacer(1, 12))
+                    story.append(Paragraph(f"Analysis Date: December 2025", styles['Normal']))
+                    story.append(Paragraph(f"Total Customers: {len(df):,}", styles['Normal']))
+                    story.append(Paragraph(f"Predicted Churn Rate: {df['predicted_churn'].mean():.1%}", styles['Normal']))
+                    story.append(Paragraph(f"Annual Revenue at Risk: ₦{total_revenue_at_risk:,.0f}", styles['Normal']))
+                    story.append(Paragraph(f"LTV at Risk: ₦{total_ltv_at_risk:,.0f}", styles['Normal']))
+                    story.append(Paragraph(f"Model Accuracy: {acc:.1%} | AUC: {auc:.3f}", styles['Normal']))
+
+                    buffer.seek(0)
+                    st.download_button(
+                        "Download PDF Report",
+                        buffer,
+                        "churn_executive_report.pdf",
+                        mime="application/pdf"
+                    )
+
+            with col2:
+                if PPT_AVAILABLE:
+                    if st.button("📊 Generate Investor PowerPoint"):
+                        prs = Presentation()
+                        slide = prs.slides.add_slide(prs.slide_layouts[1])
+                        slide.shapes.title.text = "Churn Analysis Pro – Key Insights"
+                        content = slide.shapes.placeholders[1].text_frame
+                        content.add_paragraph().text = f"Total Customers: {len(df):,}"
+                        content.add_paragraph().text = f"Predicted Churn Rate: {df['predicted_churn'].mean():.1%}"
+                        content.add_paragraph().text = f"Annual Revenue at Risk: ₦{total_revenue_at_risk:,.0f}"
+                        content.add_paragraph().text = f"LTV at Risk: ₦{total_ltv_at_risk:,.0f}"
+                        content.add_paragraph().text = f"Model Performance: Accuracy {acc:.1%}, AUC {auc:.3f}"
+
+                        ppt_buffer = io.BytesIO()
+                        prs.save(ppt_buffer)
+                        ppt_buffer.seek(0)
+                        st.download_button(
+                            "Download PowerPoint",
+                            ppt_buffer,
+                            "churn_investor_presentation.pptx",
+                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                        )
+                else:
+                    st.info("📊 PPT export unavailable in this environment. Run locally to enable.")
+
+        # ---------------- TAB 5: Full Data ----------------
+        with tab5:
+            st.subheader("Download Enriched Dataset")
             st.download_button(
-                "📥 Download PDF Report",
-                buffer,
-                file_name="churn_analysis_executive_report.pdf",
-                mime="application/pdf"
+                label="⬇️ Download Full Analysis CSV (with predictions & LTV)",
+                data=df.to_csv(index=False).encode(),
+                file_name="churn_analysis_enriched.csv",
+                mime="text/csv"
             )
 
-        # ---------------- PPT EXPORT (Optional) ----------------
-        if PPT_AVAILABLE:
-            if st.button("📊 Export Investor PowerPoint"):
-                prs = Presentation()
-                slide = prs.slides.add_slide(prs.slide_layouts[1])
-                slide.shapes.title.text = "Churn Analysis Pro – Key Insights"
-                content = slide.shapes.placeholders[1]
-                text_frame = content.text_frame
-                text_frame.text = (
-                    f"Total Customers: {len(df):,}\n"
-                    f"Predicted Churn Rate: {df['predicted_churn'].mean():.1%}\n"
-                    f"Annual Revenue at Risk: ₦{annual_revenue_at_risk:,.0f}\n"
-                    f"Model Accuracy: {acc:.2%} | AUC: {auc:.2f}\n"
-                    f"High-Risk Customers: {len(high_risk)}"
-                )
-                ppt_buffer = io.BytesIO()
-                prs.save(ppt_buffer)
-                ppt_buffer.seek(0)
-                st.download_button(
-                    "📥 Download PowerPoint",
-                    ppt_buffer,
-                    file_name="churn_investor_presentation.pptx",
-                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                )
-        else:
-            st.info("📊 PPT export unavailable in this deployment (requires local run).")
-
-        # ---------------- CSV EXPORT ----------------
-        st.download_button(
-            "⬇️ Download Full Analysis CSV",
-            df.to_csv(index=False).encode('utf-8'),
-            "churn_analysis_full_with_predictions.csv",
-            "text/csv"
-        )
-
     except Exception as e:
-        st.error(f"An error occurred: {e}")
-        st.stop()
+        st.error(f"Error processing file: {e}")
 
 else:
-    st.info("👆 Please upload a CSV file with customer data to begin analysis.")
+    st.info("👆 Please upload a CSV file containing customer data to begin analysis.")
 
 st.caption("Built with ❤️ by Freda Erinmwingbovo • Abuja, Nigeria • December 2025")
