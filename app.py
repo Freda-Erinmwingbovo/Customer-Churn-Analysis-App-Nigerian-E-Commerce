@@ -9,7 +9,6 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
-from sklearn.metrics import classification_report, roc_auc_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -19,25 +18,26 @@ st.title("📉 Customer Churn Analysis Tool")
 st.markdown("**Production-Like • Upload Your Real Customer Data**")
 
 st.markdown("""
-Upload your CSV to:
-- Predict churn risk
+Upload your customer CSV to:
+- Predict who will churn
 - See revenue at risk in ₦
 - Simulate retention strategies
 - Get automated recommendations
 """)
 
-uploaded_file = st.file_uploader("Upload CSV", type="csv")
+uploaded_file = st.file_uploader("Upload your customer CSV file", type="csv")
 
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
-        st.success(f"Loaded {len(df)} customers")
+        st.success(f"Successfully loaded {len(df)} customers")
 
         # Required columns
-        required = ['tenure_months', 'monthly_spend_ngn', 'num_purchases', 'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate', 'churn']
+        required = ['tenure_months', 'monthly_spend_ngn', 'num_purchases', 'complaints', 
+                    'support_tickets', 'app_usage_days_per_month', 'email_open_rate', 'churn']
         missing = [col for col in required if col not in df.columns]
         if missing:
-            st.error(f"Missing columns: {missing}")
+            st.error(f"Missing required columns: {missing}")
             st.stop()
 
         # Optional columns
@@ -69,7 +69,7 @@ if uploaded_file is not None:
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Train XGBoost
+        # Train model
         with st.spinner("Training model on your data..."):
             model = XGBClassifier(
                 n_estimators=300,
@@ -85,9 +85,9 @@ if uploaded_file is not None:
         df['churn_probability'] = model.predict_proba(scaler.transform(X))[:, 1]
         df['predicted_churn'] = model.predict(scaler.transform(X))
 
-        st.success("Model trained!")
+        st.success("Model trained successfully!")
 
-        # Metrics
+        # Key metrics
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Customers", len(df))
         col2.metric("Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}")
@@ -97,7 +97,7 @@ if uploaded_file is not None:
         # High-risk customers
         high_risk = df[df['churn_probability'] > 0.7].sort_values('churn_probability', ascending=False)
         st.subheader(f"High-Risk Customers ({len(high_risk)})")
-        st.dataframe(high_risk[['customer_id', 'name', 'monthly_spend_ngn', 'churn_probability']])
+        st.dataframe(high_risk[['customer_id', 'name', 'monthly_spend_ngn', 'churn_probability']].head(20))
 
         # What-If Scenario
         st.subheader("What-If Retention Scenario")
@@ -115,16 +115,15 @@ if uploaded_file is not None:
         st.subheader("Automated Recommendations")
         st.write(f"- Target {len(high_risk)} high-risk customers with {discount}% discount")
         st.write("- Focus on reducing complaints and improving app usage")
-        st.write("- Prioritize customers with high monthly spend")
+        st.write("- Prioritize high-spend customers for retention")
 
         # Download
         csv = df.to_csv(index=False).encode()
-        st.download_button("Download Predictions CSV", csv, "churn_predictions.csv", "text/csv")
+        st.download_button("Download Full Predictions", csv, "churn_predictions.csv", "text/csv")
 
     except Exception as e:
-        st.error(f"Error: {e}")
-        st.stop()
+        st.error(f"Error processing file: {e}")
 else:
-    st.info("Upload a CSV with columns: tenure_months, monthly_spend_ngn, num_purchases, complaints, support_tickets, app_usage_days_per_month, email_open_rate, churn (optional: customer_id, name)")
+    st.info("Please upload a CSV file with the required columns to begin analysis.")
 
 st.caption("Built by Freda Erinmwingbovo • Production-Like Churn Tool")
