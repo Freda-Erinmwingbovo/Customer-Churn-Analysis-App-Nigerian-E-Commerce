@@ -8,3 +8,4 @@ seaborn>=0.12.3
 shap>=0.42.1
 reportlab>=4.0.0
 python-pptx>=0.6.21
+requests
