@@ -1,5 +1,5 @@
 # ============================================================
-# app.py — Churn Analysis Pro (FINAL - FIXED INDENTATION + PERSONALIZED RECOMMENDATIONS)
+# app.py — Churn Analysis Pro (FINAL - NO ERRORS + PERSONALIZED RECOMMENDATIONS)
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
 
@@ -49,7 +49,6 @@ def generate_personalized_recommendation(row, df):
     reasons = []
     actions = []
 
-    # Use quantiles for dynamic thresholds
     high_spend_threshold = df['monthly_spend_ngn'].quantile(0.7)
     low_engagement_threshold = df['engagement_score'].quantile(0.3)
 
@@ -138,13 +137,13 @@ if uploaded_file is not None:
         df['predicted_churn'] = (df['churn_probability'] > 0.5).astype(int)
         df['ltv_estimate'] = df['monthly_spend_ngn'] * 12 * (1 / (df['churn_probability'] + 0.01))
 
-        # Generate personalized recommendations
+        # Personalized recommendations
         df['recommendation'] = df.apply(lambda row: generate_personalized_recommendation(row, df), axis=1)
 
         total_revenue_at_risk = df[df['predicted_churn'] == 1]['monthly_spend_ngn'].sum() * 12
         total_ltv_at_risk = df[df['predicted_churn'] == 1]['ltv_estimate'].sum()
 
-        # Metrics
+        # Dashboard Metrics
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total Customers", f"{len(df):,}")
         col2.metric("Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}", delta_color="inverse")
@@ -162,7 +161,6 @@ if uploaded_file is not None:
             "🔴 High-Risk Customers", "🧠 Model Explainability", "💰 What-If Simulator", "📄 Export Reports", "📊 Full Data"
         ])
 
-        # TAB 1: High-Risk with Personalized Recommendations
         with tab1:
             st.subheader("High-Risk Customers with Personalized Retention Plans")
             risk_threshold = st.slider("Risk threshold", 0.3, 0.9, 0.6, 0.05, key="risk_thresh")
@@ -179,13 +177,11 @@ if uploaded_file is not None:
                 st.dataframe(display_df.head(100), use_container_width=True)
 
                 st.write(f"**{len(high_risk)} high-risk customers** – personalized plans below:")
-
                 for _, cust in high_risk.head(15).iterrows():
                     with st.expander(f"🔴 {cust['name']} (ID: {cust['customer_id']}) – Risk: {cust['churn_probability']:.1%} | LTV: ₦{cust['ltv_estimate']:,.0f}"):
                         st.write(f"**Monthly Spend:** ₦{cust['monthly_spend_ngn']:,.0f} | **Tenure:** {cust['tenure_months']} months")
                         st.markdown(f"<div class='recommendation'>{cust['recommendation']}</div>", unsafe_allow_html=True)
 
-        # TAB 2: SHAP Explainability
         with tab2:
             st.subheader("Global Feature Importance (SHAP)")
             if st.button("Generate SHAP Beeswarm Plot", key="shap_button"):
@@ -200,13 +196,12 @@ if uploaded_file is not None:
                         plt.clf()
                         st.success("SHAP plot generated!")
                     except Exception as e:
-                        st.error(f"SHAP error: {e}. Try again.")
+                        st.error(f"SHAP error: {e}. Try clicking again.")
 
-        # TAB 3: What-If Simulator
         with tab3:
             st.subheader("Retention Campaign Simulator")
-            if 'high_risk' not in locals() or high_risk.empty:
-                st.info("No high-risk customers. Adjust threshold in Tab 1.")
+            if high_risk.empty:
+                st.info("No high-risk customers to simulate on. Lower the risk threshold in Tab 1.")
             else:
                 col1, col2 = st.columns(2)
                 with col1:
@@ -225,9 +220,8 @@ if uploaded_file is not None:
                 st.markdown(f"<p class='save big-font'>Net Revenue Saved: ₦{net_benefit:,.0f}</p>", unsafe_allow_html=True)
                 st.metric("Target Customers", target_count)
                 st.metric("Expected Retained", f"{expected_retained:.0f}")
-                st.write(f"**Gross Revenue Saved:** ₦{revenue_saved:,.0f} | **Cost:** ₦{cost:,.0f}")
+                st.write(f"**Gross Revenue Saved:** ₦{revenue_saved:,.0f} | **Campaign Cost:** ₦{cost:,.0f}")
 
-        # TAB 4: Export Reports
         with tab4:
             col1, col2 = st.columns(2)
             with col1:
@@ -243,7 +237,6 @@ if uploaded_file is not None:
                     story.append(Paragraph("Date: December 31, 2025", styles['Normal']))
                     story.append(Spacer(1, 30))
 
-                    # Metrics
                     data = [["Metric", "Value"],
                             ["Total Customers", f"{len(df):,}"],
                             ["Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}"],
@@ -258,7 +251,6 @@ if uploaded_file is not None:
                     story.append(t)
                     story.append(Spacer(1, 30))
 
-                    # Top 15 with recommendations
                     story.append(Paragraph("Top 15 High-Risk Customers & Actions", styles['Heading2']))
                     top15 = high_risk.head(15)[['name', 'churn_probability', 'monthly_spend_ngn', 'ltv_estimate', 'recommendation']].copy()
                     top15['churn_probability'] = top15['churn_probability'].apply(lambda x: f"{x:.1%}")
@@ -267,7 +259,7 @@ if uploaded_file is not None:
 
                     risk_data = [["Name", "Risk", "Spend", "LTV", "Action"]]
                     for _, r in top15.iterrows():
-                        rec = r['recommendation'].replace("**Risk drivers:** ", "").replace(". **Recommended:** ", ": ")[:70] + "..."
+                        rec = r['recommendation'].replace("**Risk drivers:** ", "").replace(". **Recommended:** ", ": ")[:70] + ("..." if len(r['recommendation']) > 80 else "")
                         risk_data.append([r['name'], r['churn_probability'], r['monthly_spend_ngn'], r['ltv_estimate'], rec])
 
                     rt = Table(risk_data, colWidths=[1.8*inch, 0.8*inch, 1*inch, 1*inch, 2*inch])
@@ -282,36 +274,39 @@ if uploaded_file is not None:
                     st.download_button("⬇️ Download PDF", buffer, "churn_personalized_report.pdf", "application/pdf")
 
             with col2:
-                if PPT_AVAILABLE and st.button("📊 Generate PowerPoint"):
-                    prs = Presentation()
-                    slide = prs.slides.add_slide(prs.slide_layouts[0])
-                    slide.shapes.title.text = "Churn Analysis Pro"
-                    slide.placeholders[1].text = "December 2025 Insights"
+                if PPT_AVAILABLE:
+                    if st.button("📊 Generate PowerPoint"):
+                        prs = Presentation()
+                        slide = prs.slides.add_slide(prs.slide_layouts[0])
+                        slide.shapes.title.text = "Churn Analysis Pro"
+                        slide.placeholders[1].text = "December 2025 Insights"
 
-                    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
-                    slide2.shapes.title.text = "Key Findings"
-                    tf = slide2.shapes.placeholders[1].text_frame
-                    tf.add_paragraph().text = f"• Customers: {len(df):,}"
-                    tf.add_paragraph().text = f"• Churn Rate: {df['predicted_churn'].mean():.1%}"
-                    tf.add_paragraph().text = f"• Revenue at Risk: ₦{total_revenue_at_risk:,.0f}"
+                        slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+                        slide2.shapes.title.text = "Key Findings"
+                        tf = slide2.shapes.placeholders[1].text_frame
+                        tf.add_paragraph().text = f"• Customers: {len(df):,}"
+                        tf.add_paragraph().text = f"• Churn Rate: {df['predicted_churn'].mean():.1%}"
+                        tf.add_paragraph().text = f"• Revenue at Risk: ₦{total_revenue_at_risk:,.0f}"
 
-                    buf = io.BytesIO()
-                    prs.save(buf)
-                    buf.seek(0)
-                    st.download_button("⬇️ Download PPT", buf, "churn_presentation.pptx",
-                                       "application/vnd.openxmlformats-officedocument.presentationml.presentation")
-                elif not PPT_AVAILABLE:
-                    st.info("PPT export available only locally")
+                        buf = io.BytesIO()
+                        prs.save(buf)
+                        buf.seek(0)
+                        st.download_button("⬇️ Download PPT", buf, "churn_presentation.pptx",
+                                           "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                else:
+                    st.info("PPT export available only when running locally")
 
-        # TAB 5: Full Data
         with tab5:
-            st.download_button("⬇️ Download Enriched CSV (with recommendations)",
+            st.subheader("Download Enriched Dataset")
+            st.download_button("⬇️ Download CSV (with predictions, LTV & recommendations)",
                                df.to_csv(index=False).encode(),
-                               "churn_analysis_with_recommendations.csv", "text/csv")
+                               "churn_analysis_with_recommendations.csv",
+                               "text/csv")
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error processing data: {e}")
 else:
-    st.info("Upload a CSV to begin analysis.")
+    st.info("👆 Please upload a CSV file to start the analysis.")
+    st.write("**Required columns:** `tenure_months`, `monthly_spend_ngn`, `num_purchases`, `complaints`, `support_tickets`, `app_usage_days_per_month`, `email_open_rate`, `churn`")
 
 st.caption("Built with ❤️ by Freda Erinmwingbovo • Abuja, Nigeria • December 2025")
