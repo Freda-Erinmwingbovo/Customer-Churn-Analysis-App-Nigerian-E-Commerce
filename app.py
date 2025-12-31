@@ -1,94 +1,129 @@
 # ============================================================
-# Customer Churn Analysis App — Nigerian E-Commerce
-# High-Accuracy XGBoost Model • Revenue Impact • What-If Scenarios
+# app.py — Customer Churn Analysis (Production-Like with Real Data Upload)
+# Trains on User's CSV • Predicts Churn • Shows ₦ Impact
 # Built by Freda Erinmwingbovo • Abuja, Nigeria • December 2025
 # ============================================================
 import streamlit as st
 import pandas as pd
-import joblib
 import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Load model and scaler
-@st.cache_resource
-def load_model():
-    model = joblib.load("churn_model_xgboost.pkl")
-    scaler = joblib.load("churn_scaler.pkl")
-    return model, scaler
+st.set_page_config(page_title="Churn Analysis", page_icon="📉", layout="wide")
 
-model, scaler = load_model()
+st.title("📉 Customer Churn Analysis Tool")
+st.markdown("**Production-Like • Real Data Upload • Trains on Your Customers**")
 
-# Title
-st.title("🇳🇬 Customer Churn Analysis & Retention Tool")
-st.markdown("**Predict churn, calculate revenue at risk, and simulate retention strategies**")
+st.markdown("""
+Upload your customer data (CSV) to:
+- Predict who will churn
+- See revenue at risk (in ₦)
+- Simulate retention strategies
+- Get automated recommendations
+""")
 
-# Upload data — REQUIRED
-st.sidebar.header("Upload Your Customer Data")
-uploaded_file = st.sidebar.file_uploader(
-    "Upload CSV (required columns: age, tenure_months, monthly_spend_ngn, num_purchases, complaints, support_tickets, app_usage_days_per_month, email_open_rate, gender, total_spend_ngn)",
-    type="csv"
-)
+# File upload
+uploaded_file = st.file_uploader("Upload your customer CSV", type="csv")
 
 if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success(f"Loaded {len(df):,} customers successfully")
+    try:
+        df = pd.read_csv(uploaded_file)
+        st.success(f"Data loaded: {len(df)} customers")
+
+        # Required columns
+        required_cols = ['tenure_months', 'monthly_spend_ngn', 'num_purchases', 'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate', 'churn']
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            st.error(f"Missing columns: {missing}")
+            st.stop()
+
+        # Feature engineering
+        df['spend_per_purchase'] = df['total_spend_ngn'] / (df['num_purchases'] + 1) if 'total_spend_ngn' in df else df['monthly_spend_ngn'] * df['tenure_months'] / (df['num_purchases'] + 1)
+        df['recent_activity'] = df['app_usage_days_per_month'] * df['email_open_rate']
+        df['complaint_rate'] = df['complaints'] / (df['tenure_months'] + 1)
+
+        features = [
+            'age' if 'age' in df else np.random.normal(32, 10, len(df)),  # fallback
+            'tenure_months', 'monthly_spend_ngn', 'num_purchases',
+            'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate',
+            'spend_per_purchase', 'recent_activity', 'complaint_rate'
+        ]
+
+        # Handle optional age
+        if 'age' not in df.columns:
+            df['age'] = np.random.normal(32, 10, len(df))
+            df['age'] = df['age'].clip(18, 70).astype(int)
+
+        X = df[features]
+        y = df['churn']
+
+        # Train/test split
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+
+        # Train model
+        with st.spinner("Training model on your data..."):
+            model = XGBClassifier(
+                n_estimators=300,
+                max_depth=6,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42
+            )
+            model.fit(X_train_scaled, y_train)
+
+        # Predictions
+        df['churn_probability'] = model.predict_proba(scaler.transform(X))[:, 1]
+        df['predicted_churn'] = model.predict(scaler.transform(X))
+
+        # Results
+        st.success("Model trained!")
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Customers", len(df))
+        col2.metric("Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}")
+        revenue_risk = df[df['predicted_churn'] == 1]['monthly_spend_ngn'].sum() * 12  # Annual
+        col3.metric("Annual Revenue at Risk (₦)", f"{revenue_risk:,.0f}")
+
+        # High-risk customers
+        high_risk = df[df['churn_probability'] > 0.7].sort_values('churn_probability', ascending=False)
+        st.subheader("High-Risk Customers (Probability >70%)")
+        st.dataframe(high_risk[['customer_id', 'name', 'monthly_spend_ngn', 'churn_probability']].head(20))
+
+        # What-if
+        st.subheader("What-If Retention Scenario")
+        discount_rate = st.slider("Discount for high-risk customers (%)", 5, 50, 20)
+        retention_rate = st.slider("Expected retention improvement (%)", 10, 80, 40)
+
+        saved_customers = len(high_risk) * (retention_rate / 100)
+        saved_revenue = saved_customers * high_risk['monthly_spend_ngn'].mean() * 12
+        cost = saved_customers * high_risk['monthly_spend_ngn'].mean() * (discount_rate / 100) * 12
+
+        net_save = saved_revenue - cost
+
+        st.metric("Estimated Annual Net Revenue Saved (₦)", f"{net_save:,.0f}")
+
+        # Recommendations
+        st.subheader("Automated Recommendations")
+        st.write("- Contact high-risk customers with personalized offers")
+        st.write(f"- Target {len(high_risk)} customers with {discount_rate}% discount")
+        st.write("- Focus on reducing complaints and improving app usage")
+
+        # Download
+        csv = df.to_csv(index=False).encode()
+        st.download_button("Download Predictions", csv, "churn_predictions.csv", "text/csv")
+
+    except Exception as e:
+        st.error(f"Error: {e}")
 else:
-    st.info("👆 Please upload your customer CSV file to begin the analysis")
-    st.stop()  # App stops until file is uploaded
+    st.info("Upload a CSV with columns: tenure_months, monthly_spend_ngn, num_purchases, complaints, support_tickets, app_usage_days_per_month, email_open_rate, churn (and optional: customer_id, name, age, gender)")
 
-# Feature engineering
-df['spend_per_purchase'] = df['total_spend_ngn'] / (df['num_purchases'] + 1)
-df['recent_activity'] = df['app_usage_days_per_month'] * df['email_open_rate']
-df['complaint_rate'] = df['complaints'] / (df['tenure_months'] + 1)
-
-features = [
-    'age', 'tenure_months', 'monthly_spend_ngn', 'num_purchases',
-    'complaints', 'support_tickets', 'app_usage_days_per_month', 'email_open_rate',
-    'spend_per_purchase', 'recent_activity', 'complaint_rate'
-]
-
-df_model = pd.get_dummies(df, columns=['gender'], drop_first=True)
-X = df_model[features + ['gender_Male']]
-
-X_scaled = scaler.transform(X)
-
-# Predictions
-df['churn_probability'] = model.predict_proba(X_scaled)[:, 1]
-df['predicted_churn'] = model.predict(X_scaled)
-
-# Dashboard
-st.header("Churn Overview")
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Customers", len(df))
-col2.metric("Predicted Churn Rate", f"{df['predicted_churn'].mean():.1%}")
-col3.metric("Revenue at Risk", f"₦{df[df['predicted_churn'] == 1]['total_spend_ngn'].sum():,.0f}")
-
-# High-risk customers
-st.header("High-Risk Customers (Churn Probability > 70%)")
-high_risk = df[df['churn_probability'] > 0.7][['customer_id', 'name', 'state', 'monthly_spend_ngn', 'complaints', 'app_usage_days_per_month', 'churn_probability']]
-high_risk = high_risk.sort_values('churn_probability', ascending=False)
-st.dataframe(high_risk)
-
-# What-If Scenario
-st.header("Retention Scenario Simulator")
-discount = st.slider("Offer % discount to high-risk customers", 5, 50, 20)
-high_risk_count = len(high_risk)
-annual_saved = high_risk_count * high_risk['monthly_spend_ngn'].mean() * 12 * (1 - discount/100)
-cost = high_risk_count * high_risk['monthly_spend_ngn'].mean() * 12 * (discount/100)
-
-st.write(f"Offering {discount}% discount to {high_risk_count:,} high-risk customers:")
-st.write(f"Estimated annual revenue retained: ₦{annual_saved:,.0f}")
-st.write(f"Cost of discount: ₦{cost:,.0f}")
-st.write(f"**Net gain: ₦{annual_saved - cost:,.0f}**")
-
-# Recommendations
-st.header("Automated Retention Recommendations")
-st.write("- Prioritize outreach to customers with >1 complaint and low app usage")
-st.write("- Offer loyalty rewards to long-tenure, high-spend customers showing decline")
-st.write("- Improve onboarding for new customers (tenure < 6 months)")
-st.write("- Segment marketing: target low-engagement users with re-activation campaigns")
-
-st.success("Analysis complete — take action to protect your revenue!")
-
-# Footer
-st.markdown("---")
-st.markdown("Built by **Freda Erinmwingbovo** • Abuja, Nigeria • December 2025")
+st.caption("Built by Freda Erinmwingbovo • Production-Like Churn Tool")
